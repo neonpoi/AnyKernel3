@@ -15,8 +15,7 @@ split_img=$home/split_img;
 # ui_print "<text>" [...]
 ui_print() {
   until [ ! "$1" ]; do
-    echo -e "ui_print $1
-      ui_print" >> /proc/self/fd/$OUTFD;
+    echo -e "ui_print $1\nui_print" > /proc/self/fd/$OUTFD;
     shift;
   done;
 }
@@ -244,7 +243,7 @@ flash_boot() {
     varlist="name arch os type comp addr ep";
   elif [ -f "$bin/mkbootimg" -a -f "$bin/unpackelf" -a -f boot.img-base ]; then
     mv -f cmdline.txt boot.img-cmdline 2>/dev/null;
-    varlist="cmdline base pagesize kernel_offset ramdisk_offset tags_offset";
+    varlist="cmdline base pagesize kerneloff ramdiskoff tagsoff";
   fi;
   for i in $varlist; do
     if [ -f boot.img-$i ]; then
@@ -304,54 +303,50 @@ flash_boot() {
     $bin/rkcrc -k $ramdisk $home/boot-new.img;
   elif [ -f "$bin/mkbootimg" -a -f "$bin/unpackelf" -a -f boot.img-base ]; then
     test "$dt" && dt="--dt $dt";
-    $bin/mkbootimg --kernel $kernel --ramdisk $ramdisk --cmdline "$cmdline" --base $home --pagesize $pagesize --kernel_offset $kernel_offset --ramdisk_offset $ramdisk_offset --tags_offset "$tags_offset" $dt --output $home/boot-new.img;
+    $bin/mkbootimg --kernel $kernel --ramdisk $ramdisk --cmdline "$cmdline" --base $home --pagesize $pagesize --kernel_offset $kerneloff --ramdisk_offset $ramdiskoff --tags_offset "$tagsoff" $dt --output $home/boot-new.img;
   else
-    test "$kernel" && cp -f $kernel kernel;
+    if [ ! "$magisk_patched" ]; then
+      $bin/magiskboot cpio ramdisk.cpio test;
+      magisk_patched=$?;
+      test $((magisk_patched & 3)) -eq 1 && $bin/magiskboot cpio ramdisk.cpio "extract .backup/.magisk .magisk";
+    fi;
+    if [ "$kernel" ]; then
+      cp -f $kernel kernel;
+      if [ $((magisk_patched & 3)) -eq 1 ]; then
+        ui_print " " "Magisk detected! Patching kernel so reflashing Magisk is not necessary...";
+        comp=$($bin/magiskboot decompress kernel 2>&1 | grep -v 'raw' | sed -n 's;.*\[\(.*\)\];\1;p');
+        ($bin/magiskboot split $kernel || $bin/magiskboot decompress $kernel kernel) 2>/dev/null;
+        if [ $? != 0 -a "$comp" ]; then
+          echo "Attempting kernel unpack with busybox $comp..." >&2;
+          $comp -dc $kernel > kernel;
+        fi;
+        $bin/magiskboot hexpatch kernel 736B69705F696E697472616D667300 77616E745F696E697472616D667300;
+        if [ "$comp" ]; then
+          $bin/magiskboot compress=$comp kernel kernel.$comp;
+          if [ $? != 0 ]; then
+            echo "Attempting kernel repack with busybox $comp..." >&2;
+            $comp -9c kernel > kernel.$comp;
+          fi;
+          mv -f kernel.$comp kernel;
+        fi;
+      else
+        case $kernel in
+          *-dtb) rm -f kernel_dtb;;
+        esac;
+      fi;
+    fi;
     test "$ramdisk" && cp -f $ramdisk ramdisk.cpio;
     test "$dt" -a -f extra && cp -f $dt extra;
     for i in dtb recovery_dtbo; do
       test "$(eval echo \$$i)" -a -f $i && cp -f $(eval echo \$$i) $i;
     done;
-    case $kernel in
-      *Image*)
-        if [ ! "$magisk_patched" ]; then
-          $bin/magiskboot cpio ramdisk.cpio test;
-          magisk_patched=$?;
-        fi;
-        if [ $((magisk_patched & 3)) -eq 1 ]; then
-          ui_print " " "Magisk detected! Patching kernel so reflashing Magisk is not necessary...";
-          comp=$($bin/magiskboot decompress kernel 2>&1 | grep -v 'raw' | sed -n 's;.*\[\(.*\)\];\1;p');
-          ($bin/magiskboot split $kernel || $bin/magiskboot decompress $kernel kernel) 2>/dev/null;
-          if [ $? != 0 -a "$comp" ]; then
-            echo "Attempting kernel unpack with busybox $comp..." >&2;
-            $comp -dc $kernel > kernel;
-          fi;
-          $bin/magiskboot hexpatch kernel 736B69705F696E697472616D667300 77616E745F696E697472616D667300;
-          if [ "$(file_getprop $home/anykernel.sh do.systemless)" == 1 ]; then
-            strings kernel | grep -E 'Linux version.*#' > $home/vertmp;
-          fi;
-          if [ "$comp" ]; then
-            $bin/magiskboot compress=$comp kernel kernel.$comp;
-            if [ $? != 0 ]; then
-              echo "Attempting kernel repack with busybox $comp..." >&2;
-              $comp -9c kernel > kernel.$comp;
-            fi;
-            mv -f kernel.$comp kernel;
-          fi;
-          test ! -f .magisk && $bin/magiskboot cpio ramdisk.cpio "extract .backup/.magisk .magisk";
-          export $(cat .magisk);
-          test $((magisk_patched & 8)) -ne 0 && export TWOSTAGEINIT=true;
-          for fdt in dtb extra kernel_dtb recovery_dtbo; do
-            test -f $fdt && $bin/magiskboot dtb $fdt patch;
-          done;
-        else
-          case $kernel in
-            *-dtb) rm -f kernel_dtb;;
-          esac;
-        fi;
-        unset magisk_patched KEEPFORCEENCRYPT KEEPVERITY SHA1 TWOSTAGEINIT;
-      ;;
-    esac;
+    if [ $((magisk_patched & 3)) -eq 1 ]; then
+      export $(cat .magisk);
+      test $((magisk_patched & 8)) -ne 0 && export TWOSTAGEINIT=true;
+      for fdt in dtb extra kernel_dtb recovery_dtbo; do
+        test -f $fdt && $bin/magiskboot dtb $fdt patch;
+      done;
+    fi;
     case $ramdisk_compression in
       none|cpio) nocompflag="-n";;
     esac;
@@ -364,21 +359,19 @@ flash_boot() {
   cd $home;
   if [ -f "$bin/futility" -a -d "$bin/chromeos" ]; then
     if [ -f "$split_img/chromeos" ]; then
-      echo "Signing with CHROMEOS..." >&2;
       $bin/futility vbutil_kernel --pack boot-new-signed.img --keyblock $bin/chromeos/kernel.keyblock --signprivate $bin/chromeos/kernel_data_key.vbprivk --version 1 --vmlinuz boot-new.img --bootloader $bin/chromeos/empty --config $bin/chromeos/empty --arch arm --flags 0x1;
     fi;
     test $? != 0 && signfail=1;
   fi;
-  if [ -f "$bin/boot_signer-dexed.jar" -a -d "$bin/avb" ]; then
+  if [ -f "$bin/BootSignature_Android.jar" -a -d "$bin/avb" ]; then
     pk8=$(ls $bin/avb/*.pk8);
     cert=$(ls $bin/avb/*.x509.*);
     case $block in
       *recovery*|*SOS*) avbtype=recovery;;
       *) avbtype=boot;;
     esac;
-    if [ "$(/system/bin/dalvikvm -Xnoimage-dex2oat -cp $bin/boot_signer-dexed.jar com.android.verity.BootSignature -verify boot.img 2>&1 | grep VALID)" ]; then
-      echo "Signing with AVBv1..." >&2;
-      /system/bin/dalvikvm -Xnoimage-dex2oat -cp $bin/boot_signer-dexed.jar com.android.verity.BootSignature /$avbtype boot-new.img $pk8 $cert boot-new-signed.img;
+    if [ "$(/system/bin/dalvikvm -Xnoimage-dex2oat -cp $bin/BootSignature_Android.jar com.android.verity.BootSignature -verify boot.img 2>&1 | grep VALID)" ]; then
+      /system/bin/dalvikvm -Xnoimage-dex2oat -cp $bin/BootSignature_Android.jar com.android.verity.BootSignature /$avbtype boot-new.img $pk8 $cert boot-new-signed.img;
     fi;
   fi;
   if [ $? != 0 -o "$signfail" ]; then
@@ -391,7 +384,6 @@ flash_boot() {
   elif [ "$(wc -c < boot-new.img)" -gt "$(wc -c < boot.img)" ]; then
     abort "New image larger than boot partition. Aborting...";
   fi;
-  blockdev --setrw $block 2>/dev/null;
   if [ -f "$bin/flash_erase" -a -f "$bin/nandwrite" ]; then
     $bin/flash_erase $block 0 0;
     $bin/nandwrite -p $block boot-new.img;
@@ -423,7 +415,6 @@ flash_dtbo() {
     if [ ! -e "$dtboblock" ]; then
       abort "dtbo partition could not be found. Aborting...";
     fi;
-    blockdev --setrw $dtboblock 2>/dev/null;
     if [ -f "$bin/flash_erase" -a -f "$bin/nandwrite" ]; then
       $bin/flash_erase $dtboblock 0 0;
       $bin/nandwrite -p $dtboblock $dtbo;
@@ -688,9 +679,6 @@ setup_ak() {
         test "$slot" && slot=_$slot;
       fi;
       if [ "$slot" ]; then
-        if [ -d /postinstall/tmp -a ! "$slot_select" ]; then
-          slot_select=inactive;
-        fi;
         case $slot_select in
           inactive)
             case $slot in
@@ -755,9 +743,6 @@ setup_ak() {
       fi;
     ;;
   esac;
-  if [ ! "$no_block_display" ]; then
-    ui_print "$block";
-  fi;
 }
 ###
 
