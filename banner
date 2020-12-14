@@ -1,7 +1,9 @@
 ===============================================
                   STRIX-KERNEL
 ===============================================
+ - Kernel version    : v4.4.248
  - Device            : X00T/D
+ - STRIX version     : G3.0
  - Based             : HMP
  - Build by          : @neonpoi
  - Supported Android : 8.1 - 11.0
