@@ -1,9 +1,9 @@
 ===============================================
                   ERROR-KERNEL
 ===============================================
- - Kernel version    : -
+ - Kernel version    : v4.4.249
  - Device            : X00T/D
- - ERROR version     : -
- - Based             : HMP
+ - ERROR version     : v15
+ - Based             : EAS
  - Build by          : -
  - Supported Android : 8.1 - 11.0
