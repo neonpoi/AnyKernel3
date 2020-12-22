@@ -14,8 +14,8 @@ device.name2=X00TD
 device.name3=ASUS_X00T
 device.name4=ASUS_X00TD
 device.name5=ASUS_X00TDA
-supported.versions=8.1 - 11.0
-supported.patchlevels=2018-04 -
+supported.versions=
+supported.patchlevels=
 '; } # end properties
 
 # shell variables

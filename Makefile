@@ -1,4 +1,4 @@
-NAME ?= STRIX
+NAME ?= ERROR
 
 DATE := $(shell date "+%Y%m%d-%H%M")
 
