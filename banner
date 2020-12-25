@@ -1,9 +1,9 @@
 ===============================================
                   STRIX-KERNEL
 ===============================================
- - Kernel version    : v4.4.205
- - Device            : X00T/D
- - STRIX version     : v4.0
- - Based             : EAS
+ - Kernel version    : v4.4.248
+ - Device            : RMX1901 / RMX1903
+ - STRIX version     : v1
+ - Based             : -
  - Build by          : @neonpoi
- - Supported Android : 8.1 - 11.0
+ - Supported Android : 11.0

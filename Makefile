@@ -2,7 +2,7 @@ NAME ?= STRIX
 
 DATE := $(shell date "+%Y%m%d-%H%M")
 
-CODE := Kernel-X00T
+CODE := Kernel-RMX1901
 
 ZIP := $(NAME)-$(CODE)-$(DATE).zip
 
